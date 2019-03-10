@@ -60,25 +60,25 @@
 */
 const int version = 14;                          // The firmware version 1.4
 
-#define EMONTX_V34                               // Sets the I/O pin allocation. 
-                                                 // use EMONTX_V2 or EMONTX_V32 or EMONTX_V34 or EMONTX_SHIELD as appropriate
-                                                 // NOTE: You must still set the correct calibration coefficients
+//#define EMONTX_V34                               // Sets the I/O pin allocation. 
+#define  CUSTOM_SHIELD                                                // use EMONTX_V2 or EMONTX_V32 or EMONTX_V34 or EMONTX_SHIELD as appropriate
+#define  EMONESP                                                // NOTE: You must still set the correct calibration coefficients
 
 //--------------------------------------------------------------------------------------------------
-// #define DEBUGGING                             // enable this line to include debugging print statements
+#define DEBUGGING                             // enable this line to include debugging print statements
                                                  //  This is turned off when SERIALOUT or EMONESP (see below) is defined.
 
 #define SERIALPRINT                              // include 'human-friendly' print statement for commissioning - comment this line to exclude.
 
 // Pulse counting settings
-#define USEPULSECOUNT                            // include the ability to count pulses. Comment this line if pulse counting is not required.
+//#define USEPULSECOUNT                            // include the ability to count pulses. Comment this line if pulse counting is not required.
 #define PULSEINT 1                               // Interrupt no. for pulse counting: EmonTx V2 = 0, EmonTx V3 = 1, EmonTx Shield - see Wiki
 #define PULSEPIN 3                               // Interrupt input pin: EmonTx V2 = 2, EmonTx V3 = 3, EmonTx Shield - see Wiki
 #define PULSEMINPERIOD 110                       // minimum period between pulses (ms) - default pulse output meters = 100ms
                                                  //   Set to 0 for electronic sensor with solid-state output.
                                                  
 // RFM settings                                  // THIS SKETCH WILL NOT WORK WITH THE RFM12B radio.
-#define RFM69CW                                  // The type of Radio Module, or none.
+//#define RFM69CW                                  // The type of Radio Module, or none.
                                                  // Can be RFM69CW 
                                                  //   or SERIALOUT if a wired serial connection is used 
                                                  //   or EMONESP if an ESP WiFi module is used
@@ -213,6 +213,21 @@ double i4Lead = 0.20;     // degrees by which the v.t. phase error leads the c.t
 #define SDOPIN 12
 #define W1PIN 4       // 1-Wire pin for temperature
 
+#elif defined CUSTOM_SHIELD
+
+// EmonTx Shield Pin references
+#undef CT4Phase
+//#define VOLTSPIN 0
+#define CT1PIN 1
+#define CT2PIN 2
+#define CT3PIN 3
+//#define CT4PIN 4
+#define LEDPIN LED_BUILTIN //9
+//#define RFMSELPIN 5   // See Wiki
+//#define RFMIRQPIN 3   // See Wiki
+//#define SDOPIN 12
+//#define W1PIN 4       // 1-Wire pin for temperature
+
 #else
 // EmonTx v3.4 Pin references
 #define VOLTSPIN 0
@@ -290,7 +305,9 @@ const byte PulseMinPeriod = PULSEMINPERIOD;      // minimum period between pulse
 #endif
 //--------------------------------------------------------------------------------------------------
 
+#ifdef W1PIN
 #include <Wire.h>
+#endif
 #include <SPI.h>
 #include <util/crc16.h>
 #include <OneWire.h>
@@ -340,8 +357,10 @@ volatile bool newsumCycle;
 unsigned long nextTransmitTime;
 bool rfmXmit = false;
 
+#ifdef W1PIN
 OneWire oneWire(W1PIN);
 bool hasTemperatureSensor = false;
+#endif
 
 static void showString (PGM_P s);
 
@@ -371,25 +390,28 @@ void setup()
   pinMode(SAMPPIN, OUTPUT);
   digitalWrite(SAMPPIN, LOW);
   #endif
-  pinMode (RFMSELPIN, OUTPUT);
-  digitalWrite(RFMSELPIN,HIGH);
 
+  #ifdef RFMSELPIN
+    pinMode (RFMSELPIN, OUTPUT);
+    digitalWrite(RFMSELPIN,HIGH);
   
-  for (byte i=0; i<4; i++)
-  {
-      digitalWrite(LEDPIN, LOW); delay(200); digitalWrite(LEDPIN, HIGH); delay(200);
-  }
     
- // start the SPI library:
-  SPI.begin();
-  SPI.setBitOrder(MSBFIRST);
-  SPI.setDataMode(0);
-  SPI.setClockDivider(SPI_CLOCK_DIV8);
-  // initialise RFM69
-  delay(200); // wait for RFM12 POR
-  #ifdef RFM69CW
-    rfm_init();
-  #endif
+    for (byte i=0; i<4; i++)
+    {
+        digitalWrite(LEDPIN, LOW); delay(200); digitalWrite(LEDPIN, HIGH); delay(200);
+    }
+      
+   // start the SPI library:
+    SPI.begin();
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setDataMode(0);
+    SPI.setClockDivider(SPI_CLOCK_DIV8);
+    // initialise RFM69
+    delay(200); // wait for RFM12 POR
+    #ifdef RFM69CW
+      rfm_init();
+    #endif
+  #endif //#ifdef RFMSELPIN
   
   #ifdef USEPULSECOUNT
   pinMode(PULSEPIN, INPUT_PULLUP);               // Set interrupt pulse counting pin as input
@@ -397,8 +419,8 @@ void setup()
   #endif
   emontx.pulseCount=0;                           // Make sure pulse count starts at zero
     
-  Serial.begin(9600);                            // Do NOT set greater than 9600
-digitalWrite(LEDPIN, LOW);   
+  Serial.begin(115200);                            // Do NOT set greater than 9600
+  digitalWrite(LEDPIN, LOW);   
   Serial.println(F("OpenEnergyMonitor.org"));
   #if !defined SERIALOUT && !defined EMONESP
    #ifdef EMONTX_V2
@@ -455,20 +477,23 @@ digitalWrite(LEDPIN, LOW);
   calculateConstants();
 
   nextTransmitTime=millis();
- 
+
+  #ifdef W1PIN
   if (isTemperatureSensor())
   {      
     hasTemperatureSensor = true;
     convertTemperature(); // start initial temperature conversion
   }
+  #endif
 
   #ifdef DEBUGGING
     Serial.println(F("Phase shift coefficients:"));
     Serial.print(F("x1 = "));Serial.print(x1);Serial.print(F("  y1 = "));Serial.println(y1);
     Serial.print(F("x2 = "));Serial.print(x2);Serial.print(F("  y2 = "));Serial.println(y2);
     Serial.print(F("x3 = "));Serial.print(x3);Serial.print(F("  y3 = "));Serial.println(y3);
+    #ifdef CT4Phase
     Serial.print(F("x4 = "));Serial.print(x4);Serial.print(F("  y4 = "));Serial.println(y4);
-      
+    #endif
   #endif
   
   
@@ -508,9 +533,12 @@ void loop()
     #endif
     calculateVIPF();
 
+    #ifdef W1PIN
     if (hasTemperatureSensor)
         emontx.temp[0]=readTemperature();
-    
+    #endif
+
+    #ifdef USEPULSECOUNT
     if (pulses)                                      // if the ISR has counted some pulses, update the total count
     {
         cli();                                       // Disable interrupt just in case a pulse comes in while we are updating the count
@@ -518,9 +546,13 @@ void loop()
         pulses = 0;
         sei();                                       // Re-enable interrupts
     }
-
+    #endif
+    
     sendResults();
+    
+    #ifdef W1PIN
     convertTemperature(); // start next conversion
+    #endif
     nextTransmitTime+=LOOPTIME;
     #ifndef LEDISLOCK
       digitalWrite(LEDPIN,LOW);
@@ -578,7 +610,7 @@ ISR(ADC_vect)
     case CT3PIN:
     #ifdef CT4Phase
       ADMUX = _BV(REFS0) | CT4PIN; // start CT4 conversion
-    #else
+    #elif VOLTSPIN
       ADMUX = _BV(REFS0) | VOLTSPIN; // start Voltage conversion        
     #endif
       ADCSRA |= _BV(ADSC);
@@ -595,6 +627,7 @@ ISR(ADC_vect)
       sumI4avg += sampleI4; 
       break;
     #endif
+    #if VOLTSPIN
     case VOLTSPIN:
       lastV=newV;
       newV = result;
@@ -619,6 +652,7 @@ ISR(ADC_vect)
       updatePLL(newV,lastV);
       ++Vindex %= BUFFERSIZE;    
       break;
+      #endif //#if VOLTSPIN
       
   }
   #ifdef SAMPPIN
@@ -947,16 +981,23 @@ void sendResults()
     Serial.print(F(",ct2:")); Serial.print(realPower2);
     #endif    
     Serial.print(F(",ct3:")); Serial.print(realPower3);
-    Serial.print(F(",ct4:")); Serial.print(realPower4);
-    Serial.print(F(",vrms:")); Serial.print(Vrms);
-
     
-    for(byte j=0;j<MAXONEWIRE;j++)
-    {
-      Serial.print(F(",t")); Serial.print(j+1); Serial.print(F(":"));
-      Serial.print(emontx.temp[j]/100.0);
-    }
-    Serial.print(F(",pulses:"));Serial.print(emontx.pulseCount);
+//    Serial.print(F(",ct4:")); Serial.print(realPower4);
+//    Serial.print(F(",vrms:")); Serial.print(Vrms);
+//
+//    
+//    for(byte j=0;j<MAXONEWIRE;j++)
+//    {
+//      Serial.print(F(",t")); Serial.print(j+1); Serial.print(F(":"));
+//      Serial.print(emontx.temp[j]/100.0);
+//    }
+//    Serial.print(F(",pulses:"));Serial.print(emontx.pulseCount);
+    Serial.println();
+    
+    Serial.print(F("I1rms:")); Serial.print(I1rms,3);
+    Serial.print(F(",I2rms:")); Serial.print(I2rms,3);
+    Serial.print(F(",I3rms:")); Serial.print(I3rms,3);
+    
     Serial.println();
     delay(50);
   #endif
@@ -1017,6 +1058,7 @@ void sendResults()
   
 }
 
+#ifdef W1PIN
 bool isTemperatureSensor(void)
 {
   return oneWire.reset();
@@ -1057,7 +1099,7 @@ int readTemperature()
                       85  deg                    although in range, might indicate a wiring fault.
 */
                       
-
+#endif
 
 #ifdef USEPULSECOUNT
 //-------------------------------------------------------------------------------------------------------------------------------------------
